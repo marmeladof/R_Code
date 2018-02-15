@@ -9,7 +9,6 @@ output: pdf_document
 
 ```{r}
 require(ggplot2)
-require(dplyr)
 require(zoo)
 require(xts)
 
@@ -45,7 +44,7 @@ AIC.Probs <- exp((min(AICs) - AICs)/2)
 
 The ARIMA(1,1,1) model presents the lowest AIC value and further to that fact, the ARIMA(0,1,1) and ARIMA(1,1,0) models are $2.261 \cdot 10^{-13}$ and $1.707 \cdot 10^{-5}$ times as probable as the ARIMA(1,1,1) model to minimise the information loss.
 
-The correlograms of the residuals are depicted in the following plots.
+The correlograms, plots of partial ACF and p-values of the Ljung-Box statistic for the residuals of each model are depicted in the following plots.
 
 ```{r}
 # Correlogram of ARIMA(0,1,1) model
@@ -71,22 +70,132 @@ lb <- function(lag, x, type = "Ljung-Box"){
 Lags <- 1:50
 n.Lags <- length(Lags)
 
-Model.p.values <- data.frame(ARIMA1 = numeric(n.Lags),
-                             ARIMA2 = numeric(n.Lags),
-                             ARIMA3 = numeric(n.Lags),
-                             lag = Lags)
+Model.p.values <- data.frame(model = rep(c("ARIMA(0,1,1)",
+                                           "ARIMA(1,1,0)",
+                                           "ARIMA(1,1,1)"),
+                                         each = n.Lags),
+                             lag = rep(Lags, times = 3))
 
-Model.p.values$ARIMA1 <- sapply(Lags, lb, x = ARIMA1$residuals)
-Model.p.values$ARIMA2 <- sapply(Lags, lb, x = ARIMA2$residuals)
-Model.p.values$ARIMA3 <- sapply(Lags, lb, x = ARIMA3$residuals)
+Model.p.values$p.value <- c(sapply(Lags, lb, x = ARIMA1$residuals),
+                                sapply(Lags, lb, x = ARIMA2$residuals),
+                                sapply(Lags, lb, x = ARIMA3$residuals))
 
-# ggplot(data = Model.p.values, aes(x = Lags)) +
-#   geom_line()
+ggplot(data = Model.p.values, aes(x = lag, y = p.value, colour = model)) +
+  geom_line() +
+  geom_point() +
+  ggtitle("p-value of Ljung-Box statistic for ARIMA models") +
+  xlab("Lag") +
+  ylab("p-value")
 ```
-From the above correlograms it is possible to visualize that the residuals are uncorrelated for the ARIMA(1,1,1) model. This indicates that the estimated residuals are white noise.
+From the above correlograms and partial ACF it is possible to visualize that the residuals are uncorrelated for the ARIMA(1,1,1) model. The same is not seen in the correlograms of the ARIMA(1,1,0) and ARIMA(0,1,1) models. Furthermore, the Lujng-Box statistic was calculated for each model with lag values from 1 to 50. As indicated in the above plot, the p-values for the ARIMA(1,1,1) are over 7% for all lag values, which further indicates that an ARIMA(1,1,1) is the most appropriate model out of the three models.
 
 ## (b) Chosen model
 
 The fitted ARIMA(1,1,1) model can be written as follows:
 
-$$X_{t} = \alpha_{1}X_{t-1} + Z_{t} - \theta_{1}Z_{t-1}$$
+$$W_{t} = \alpha_{1}W_{t-1} + Z_{t} + \theta_{1}Z_{t-1} \\
+(W_{t} = \nabla X_{t} = (I - B)X_{t} = X_{t} - X_{t-1}) \\
+\implies X_{t} - X_{t-1} = \alpha_{1}(X_{t-1} - X_{t-2}) + Z_{t} + \theta_{1}Z_{t-1} \\
+X_{t} = (1+\alpha_{1})X_{t-1} - \alpha_{1}X_{t-2} + Z_{t} + \theta_{1}Z_{t-1}$$
+wherein $\alpha_{1}=0.876$ and $\theta_{1}=-0.502$.
+
+This can be verified with the results obtained from the model estimation in R.
+
+```{r}
+print(ARIMA3$coef)
+```
+
+## Question 3
+
+$$W_{t} = \alpha_{1}W_{t-1} + Z_{t} + \theta_{1}Z_{t-1} \\
+(1 - \alpha_{1}B)W_{t} = (1 + \theta_{1}B)Z_{t} \\
+\phi(B)W_{t} = \theta(B)Z_{t} \\
+\implies Z_{t} = \frac{\phi(B)}{\theta(B)}W_{t}$$
+
+As $W_{t} = (I - B)X_{t}$,
+
+$$Z_{t} = \frac{\Phi(B)}{\theta(B)}X_{t} = \frac{(I-B)\phi(B)}{\theta(B)}X_{t} = \Pi(B)X_{t}$$
+
+
+
+To obtain the forecast for $n+1$, the Box-Jenkins approach sets $Z_{n+1} = 0$. Therefore, $X_{n+1}^n$ can be written as:
+
+$$X_{n+1}^{n} = X_{n+1} - Z_{n+1}$$
+
+$X_{n}^{n-1}$ can be written as:
+
+$$X_{n}^{n-1} = X_{n} - Z_{n}$$
+
+Therefore
+
+$$X_{n+1}^{n} = X_{n+1} - Z_{n+1} - (X_{n} - Z_{n} - X_{n}^{n-1}) \\
+X_{n+1}^{n} = (X_{n+1} - X_{n}) - (Z_{n+1} - Z_{n}) + X_{n}^{n-1} \\$$
+
+Applying the previous equality $Z_{t} = \Pi(B)X_{t}$ and the model of Question 2, part (b) for $X_{n+1}$
+
+$$X_{n+1}^{n} = ((1+\alpha_{1})X_{n} - \alpha_{1}X_{n-1} + Z_{n+1} + \theta_{1}Z_{n} - X_{n}) - (Z_{n+1} - \Pi(B)X_{n}) + X_{n}^{n-1} \\
+X_{n+1}^{n} = (\alpha_{1}X_{n} - \alpha_{1}X_{n-1} + \theta_{1}Z_{n}) + \Pi(B)X_{n} + X_{n}^{n-1} \\
+X_{n+1}^{n} = (\alpha_{1} + \Pi(B))X_{n} - \alpha_{1}X_{n-1} + \theta_{1}\Pi(B)X_{n}) + X_{n}^{n-1} \\
+X_{n+1}^{n} = (\alpha_{1} + (1 + \theta_{1})\Pi(B))X_{n} - \alpha_{1}X_{n-1}) + X_{n}^{n-1}
+$$
+
+For $h=2$
+
+$$
+X_{n+2}^{n+1} = (\alpha_{1} + (1 + \theta_{1})\Pi(B))X_{n+1} - \alpha_{1}X_{n}) + X_{n}^{n+1} \\
+X_{n+2}^{n+1} = (\alpha_{1} + (1 + \theta_{1})\Pi(B))X_{n+1} - \alpha_{1}X_{n}) + (\alpha_{1} + (1 + \theta_{1})\Pi(B))X_{n} - \alpha_{1}X_{n-1}) + X_{n}^{n-1} \\
+X_{n+2}^{n+1} = (\alpha_{1} + (1 + \theta_{1})\Pi(B))X_{n+1} + (1 + \theta_{1})\Pi(B)X_{n} - \alpha_{1}X_{n-1} + X_{n}^{n-1} \\
+$$
+Replacing $X_{n+1}$ from the model of Question 2, part (b)
+
+$$
+X_{n+2}^{n+1} = (\alpha_{1} + (1 + \theta_{1})\Pi(B))X_{n+1} + (1 + \theta_{1})\Pi(B)X_{n} - \alpha_{1}X_{n-1} + X_{n}^{n-1} \\
+$$
+
+## Question 4
+
+
+### Part (a)
+
+The forecast of GDP in quarter one of 2014 using exponential smoothing is as follows
+
+```{r}
+require(forecast)
+
+forecast.2014.Q1.ses <- ses(df.xts, h = 1)
+
+print(paste("Exponential smoothing forecast: ", round(forecast.2014.Q1.ses$mean,3)))
+```
+
+### Part (b)
+
+The forecast of GDP in quarter one of 2014 using Holt's method
+
+```{r}
+forecast.2014.Q1.Holt <- holt(df.xts, h = 1)
+print(paste("Holt's method forecast: ", round(forecast.2014.Q1.Holt$mean, 3)))
+```
+
+### Part (c)
+
+The forecast of GDP in quarter one to four of 2014 using the Box-Jenkins approach
+
+```{r}
+forecast.2014.Q1.Q4.Box.J <- forecast(ARIMA3, h = 4)
+print(paste("Box-Jenkins forecast for 2014 Q1: ", round(forecast.2014.Q1.Q4.Box.J$mean[1], 3)))
+print(paste("Box-Jenkins forecast for 2014 Q2: ", round(forecast.2014.Q1.Q4.Box.J$mean[2], 3)))
+print(paste("Box-Jenkins forecast for 2014 Q3: ", round(forecast.2014.Q1.Q4.Box.J$mean[3], 3)))
+print(paste("Box-Jenkins forecast for 2014 Q4: ", round(forecast.2014.Q1.Q4.Box.J$mean[4], 3)))
+```
+
+The 95\% prediction intervals for each quarter are as follows
+
+```{r}
+forecast.2014.Q1.Q4.Box.J <- forecast(ARIMA3, h = 4)
+print(paste("95% prediction interval Box-Jenkins forecast for 2014 Q1: (", round(forecast.2014.Q1.Q4.Box.J$lower[1], 3), ",", round(forecast.2014.Q1.Q4.Box.J$upper[1], 3), ")", sep = ""))
+print(paste("95% prediction interval Box-Jenkins forecast for 2014 Q2: (", round(forecast.2014.Q1.Q4.Box.J$lower[2], 3), ",", round(forecast.2014.Q1.Q4.Box.J$upper[2], 3), ")", sep = ""))
+print(paste("95% prediction interval Box-Jenkins forecast for 2014 Q3: (", round(forecast.2014.Q1.Q4.Box.J$lower[3], 3), ",", round(forecast.2014.Q1.Q4.Box.J$upper[3], 3), ")", sep = ""))
+print(paste("95% prediction interval Box-Jenkins forecast for 2014 Q4: (", round(forecast.2014.Q1.Q4.Box.J$lower[4], 3), ",", round(forecast.2014.Q1.Q4.Box.J$upper[4], 3), ")", sep = ""))
+```
+
+An exponential smoothing approach would not be appropiate as the time series $\{X_{t}\}$ presents a systematic trend. It could also be considered that the Holt'z approach would not be suitable as the systematic trend appears to be non linear. Therefore, it would be considered that the Box-Jenkins is the most appropiate method for forecasting in this case.
